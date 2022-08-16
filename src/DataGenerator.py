@@ -4,8 +4,8 @@ import os
 import tensorflow as tf
 
 
-class DataGenerator(tf.keras.utils.Sequence):
-    def __init__(self, directory, image_size, color_mode = 'grayscale', batch_size=32, shuffle=False, sample_size=None, train_test_split=False, test_size=.2, file_list=None, name='Generator'):
+class AudioDataGenerator(tf.keras.utils.Sequence):
+    def __init__(self, directory, image_size, color_mode = 'grayscale', batch_size=32, shuffle=False, sample_size=None, train_test_split=False, test_size=.2, file_list=None, name='Generator', output_channel_index=None, num_output_channels=1, output_size=None):
         self.batch_size = batch_size
         self.dir = directory
         self._image_size = image_size
@@ -16,6 +16,10 @@ class DataGenerator(tf.keras.utils.Sequence):
             self._img_channels = 1
         elif color_mode == 'rgb':
             self._img_channels = 3
+
+        self.output_channel_index = output_channel_index
+        self.num_output_channels = num_output_channels
+        self.output_size = output_size
 
         self.shuffle = shuffle
         self.sample_size = sample_size
@@ -38,10 +42,46 @@ class DataGenerator(tf.keras.utils.Sequence):
     def __len__(self):
         return len(self._files) // self.batch_size
 
-    def __getitem__(self, index, return_filename=False):
+    def __getitem__(self, index, return_filename=False, get_all_tiles=False):
         batch = self._files[index*self.batch_size:index*self.batch_size+self.batch_size]
         
         X, y = self.__get_data(batch)
+        
+        if self.output_channel_index != None:
+            X = X[:,:,:,self.output_channel_index:self.output_channel_index+self.num_output_channels]
+            y = y[:,:,:,self.output_channel_index:self.output_channel_index+self.num_output_channels]
+
+        if self.output_size != None:
+            if get_all_tiles == False:
+                if self.output_size[1] < self._img_width:
+                    rand_x_index = np.random.randint(low=0, high=self._img_width - self.output_size[1])
+                else:
+                    rand_x_index = 0
+                if self.output_size[0] < self._img_height:
+                    rand_y_index = np.random.randint(low=0, high=self._img_height - self.output_size[0])
+                else:
+                    rand_y_index = 0
+
+                X = X[:,rand_y_index:rand_y_index+self.output_size[0],rand_x_index:rand_x_index+self.output_size[1],:]
+                y = X
+            else:
+                num_x = self._img_width // self.output_size[1]
+                num_y = self._img_height // self.output_size[0]
+                
+                all_tiles = []
+                new_batch = []
+                for idx, img in enumerate(X):
+                    for i in range(num_y):
+                        for j in range(num_x):
+                            all_tiles.append(img[i:i+self.output_size[0],j:j+self.output_size[1],:])
+                            new_batch.append(batch[idx])
+                            
+                X = np.array(all_tiles)
+                y = X
+                
+                if return_filename:
+                    batch = new_batch
+
         if return_filename:
             return batch, X, y
         else:
@@ -59,15 +99,15 @@ class DataGenerator(tf.keras.utils.Sequence):
             path = self.dir + file
             img = tf.keras.preprocessing.image.load_img(path, color_mode=self._color_mode)
             scale = 1./255
-            X[i,] = tf.convert_to_tensor(scale*np.array(tf.keras.preprocessing.image.img_to_array(img))) 
+            X[i,] = tf.convert_to_tensor(scale*np.array(img))
             
         y = X
 
         return X, y
     
-    def take(self, index=1, return_filename=False):
+    def take(self, index=1, return_filename=False, get_all_tiles=False):
         
-        return self.__getitem__(index, return_filename)
+        return self.__getitem__(index, return_filename, get_all_tiles)
     
     def __train_test_split(self, files):
         
@@ -80,8 +120,8 @@ class DataGenerator(tf.keras.utils.Sequence):
         train_files = files[:test_split]
         test_files = files[test_split:]
         
-        self.train = DataGenerator(self.dir, self._image_size, shuffle=self.shuffle, file_list=train_files, name='Training')
-        self.test = DataGenerator(self.dir, self._image_size, shuffle=self.shuffle, file_list=test_files, name='Test')
+        self.train = AudioDataGenerator(self.dir, self._image_size, batch_size=self.batch_size, color_mode=self._color_mode, shuffle=self.shuffle, file_list=train_files, name='Training', output_channel_index=self.output_channel_index, output_size=self.output_size)
+        self.test = AudioDataGenerator(self.dir, self._image_size, batch_size=self.batch_size, color_mode=self._color_mode, shuffle=self.shuffle, file_list=test_files, name='Test', output_channel_index=self.output_channel_index, output_size=self.output_size)
         
         
     def __collect_image_files(self, files):
