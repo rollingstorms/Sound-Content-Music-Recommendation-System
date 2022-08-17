@@ -1,4 +1,4 @@
-
+import matplotlib.pyplot as plt
 
 def progress_bar(progress, total, display_length=60):
         left_ratio = display_length * progress//total

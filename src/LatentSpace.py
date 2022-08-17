@@ -24,7 +24,7 @@ class LatentSpace:
                                     output_channel_index=0,
                                     num_output_channels=num_channels,
                                     output_size=output_size)
-        self.latent_cols = [f'latent_{i}' for i in range(128)]
+        self.latent_cols = [f'latent_{i}' for i in range(latent_dims)]
         
         self._tracks_df_path = tracks_feather_path
         self.size = self.prediction_generator.size
