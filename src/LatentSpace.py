@@ -12,7 +12,7 @@ from src.helper_functions import progress_bar
 
 class LatentSpace:
     
-    def __init__(self, autoencoder_path, image_dir, tracks_feather_path, sample_size=None, latent_dims=128, num_channels=1, output_size=(128,128)):
+    def __init__(self, autoencoder_path, image_dir, tracks_feather_path, sample_size=None, latent_dims=128, num_channels=1, output_size=(128,128), scale=True):
         self.batch_size = 32
         self.autoencoder = tf.keras.models.load_model(autoencoder_path)
         self.prediction_generator = AudioDataGenerator(directory=image_dir,
@@ -29,6 +29,7 @@ class LatentSpace:
         self._tracks_df_path = tracks_feather_path
         self.size = self.prediction_generator.size
         self._num_channels = num_channels
+        self._scale = scale
         
     def build(self):
         self.prediction_generator.batch_size=self.batch_size
@@ -67,9 +68,10 @@ class LatentSpace:
         track_latents = track_latents.drop_duplicates(subset='id')
         track_latents = track_latents.reset_index(drop=True)
         
-        scaler = StandardScaler()
-        track_latent_scaled = scaler.fit_transform(track_latents[self.latent_cols])
-        track_latents[self.latent_cols] = track_latent_scaled
+        if self._scale:
+            scaler = StandardScaler()
+            track_latent_scaled = scaler.fit_transform(track_latents[self.latent_cols])
+            track_latents[self.latent_cols] = track_latent_scaled
         
         print(f'Track dataframe built. {round((time.time()-start_time)/60,2)} minutes elapsed')
         
@@ -157,11 +159,13 @@ class LatentSpace:
         test_img = self.get_image_data_by_index(index)
         prediction = np.array(self.autoencoder(test_img))
         
-        fig, ax = plt.subplots(ncols=2, figsize=(10,3))
+        fig, ax = plt.subplots(ncols=3, figsize=(10,3))
         ax[0].title.set_text('Original image')
         ax[0].imshow(test_img[0])
         ax[1].title.set_text('Reconstructed image')
         ax[1].imshow(prediction[0])
+        ax[2].title.set_text('Difference')
+        ax[2].imshow(prediction[0] - test_img[0])
         plt.tight_layout()
         plt.show()
 
