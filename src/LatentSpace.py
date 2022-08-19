@@ -30,6 +30,7 @@ class LatentSpace:
         self.size = self.prediction_generator.size
         self._num_channels = num_channels
         self._scale = scale
+
         
     def build(self):
         self.prediction_generator.batch_size=self.batch_size
@@ -103,6 +104,17 @@ class LatentSpace:
         self.prediction_generator.batch_size = 1
         
     def save(self, directory_to_save):
+
+        directories = directory_to_save.split('/')
+        save_folders=[directories[0]]
+        for directory in directories[1:]:
+            save_folders.append(save_folders[-1] + '/' + directory)
+        for folder in save_folders:
+            try:
+                os.mkdir(folder)
+            except:
+                pass
+
         feather.write_feather(self.tracks, directory_to_save+'/tracks.feather')
         feather.write_feather(self.artists, directory_to_save+'/artists.feather')
         feather.write_feather(self.genres, directory_to_save+'/genres.feather')
@@ -185,3 +197,6 @@ class LatentSpace:
                 ax[2][1].imshow(np.array(prediction[0][:,:,2]), cmap='Blues')
                 plt.tight_layout()
                 plt.show()
+
+    def get_index_by_artist_name(artist_name):
+        return self.tracks[self.tracks.artist_name.str.contains(artist_name)][['track_id', 'track_name', 'artist_name']]

@@ -6,7 +6,6 @@ import tensorflow as tf
 
 class AudioDataGenerator(tf.keras.utils.Sequence):
     def __init__(self, directory, image_size, color_mode = 'grayscale', batch_size=32, shuffle=False, sample_size=None, train_test_split=False, test_size=.2, file_list=None, name='Generator', output_channel_index=None, num_output_channels=1, output_size=None):
-        self.batch_size = batch_size
         self.dir = directory
         self._image_size = image_size
         self._img_height = image_size[0]
@@ -24,6 +23,8 @@ class AudioDataGenerator(tf.keras.utils.Sequence):
         self.shuffle = shuffle
         self.sample_size = sample_size
         self.test_size = test_size
+        self.batch_size = batch_size
+        
         if file_list == None:
             self._files = self.__get_images_from_directory(directory)
         else:
@@ -67,7 +68,7 @@ class AudioDataGenerator(tf.keras.utils.Sequence):
             else:
                 num_x = self._img_width // self.output_size[1]
                 num_y = self._img_height // self.output_size[0]
-                
+
                 all_tiles = []
                 new_batch = []
                 for idx, img in enumerate(X):
