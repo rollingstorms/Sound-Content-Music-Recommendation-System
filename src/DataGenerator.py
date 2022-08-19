@@ -2,10 +2,22 @@ import numpy as np
 from random import sample, shuffle
 import os
 import tensorflow as tf
+import numpy.ma as ma
 
 
 class AudioDataGenerator(tf.keras.utils.Sequence):
-    def __init__(self, directory, image_size, color_mode = 'grayscale', batch_size=32, shuffle=False, sample_size=None, train_test_split=False, test_size=.2, file_list=None, name='Generator', output_channel_index=None, num_output_channels=1, output_size=None):
+    def __init__(self,
+                directory,
+                image_size,
+                color_mode = 'grayscale',
+                batch_size=32, shuffle=False,
+                sample_size=None, train_test_split=False,
+                test_size=.2, file_list=None,
+                name='Generator',
+                output_channel_index=None,
+                num_output_channels=1,
+                output_size=None,
+                threshold_level=0):
         self.dir = directory
         self._image_size = image_size
         self._img_height = image_size[0]
@@ -24,6 +36,8 @@ class AudioDataGenerator(tf.keras.utils.Sequence):
         self.sample_size = sample_size
         self.test_size = test_size
         self.batch_size = batch_size
+
+        self.threshold_level = threshold_level
         
         if file_list == None:
             self._files = self.__get_images_from_directory(directory)
@@ -100,7 +114,15 @@ class AudioDataGenerator(tf.keras.utils.Sequence):
             path = self.dir + file
             img = tf.keras.preprocessing.image.load_img(path, color_mode=self._color_mode)
             scale = 1./255
-            X[i,] = tf.convert_to_tensor(scale*np.array(img))
+            img = scale*np.array(img)
+            if self.threshold_level > 0:
+                img_min = img.min()
+                img_max = img.max()
+                threshold = self.threshold_level * (img_max - img_min) + img_min
+                mx = ma.masked_where(img < threshold, img, copy=True)
+                img = (mx.filled(fill_value=threshold) - threshold)
+                img = img  * (img_max / img.max())
+            X[i,] = tf.convert_to_tensor(img)
             
         y = X
 

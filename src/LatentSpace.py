@@ -78,7 +78,7 @@ class LatentSpace:
         
         start_time = time.time()
         print('Building artist distributions...')
-        artist_latents = track_latents.groupby('artist_name').mean().dropna()
+        artist_latents = track_latents.groupby(['artist_id','artist_name']).mean().reset_index()
         artist_latents.drop(columns=['track_popularity', 'artist_popularity'], inplace=True)
         print(f'Artist distributions built. {round((time.time()-start_time)/60,2)} minutes elapsed')
         
@@ -103,7 +103,7 @@ class LatentSpace:
         
         self.prediction_generator.batch_size = 1
         
-    def save(self, directory_to_save):
+    def save(self, directory_to_save, save_full_results=False):
 
         directories = directory_to_save.split('/')
         save_folders=[directories[0]]
@@ -118,30 +118,68 @@ class LatentSpace:
         feather.write_feather(self.tracks, directory_to_save+'/tracks.feather')
         feather.write_feather(self.artists, directory_to_save+'/artists.feather')
         feather.write_feather(self.genres, directory_to_save+'/genres.feather')
-    
-    def load(self, directory_to_load):
-        self.tracks = feather.read_feather(directory_to_load+'/tracks.feather')
-        self.artists = feather.read_feather(directory_to_load+'/artists.feather')
-        self.genres = feather.read_feather(directory_to_load+'/genres.feather')
+        if save_full_results:
+            feather.write_feather(self.results, directory_to_save+'/results.feather')
+
+    def load(self, directory_to_load, load_full_results=False):
+        try:
+            self.tracks = feather.read_feather(directory_to_load+'/tracks.feather')
+            print('Loaded tracks.')
+        except:
+            print('Failed to load tracks.')
+
+        try:
+            self.artists = feather.read_feather(directory_to_load+'/artists.feather')
+            print('Loaded artists.')
+        except:
+            print('Failed to load artists.')
+
+        try:
+            self.genres = feather.read_feather(directory_to_load+'/genres.feather')
+            print('Loaded genres.')
+        except:
+            print('Failed to load genres.')
+
+
+        if load_full_results:
+            try:
+                self.genres = feather.read_feather(directory_to_load+'/results.feather')
+                print('Loaded full results.')
+            except:
+                print('Failed to load full results')
+        
+        
         self.prediction_generator.batch_size = 1
         
-    def get_similar_tracks_by_index(self, df_index, num=10, similarity_measure='cosine'):
+    def get_similar_tracks_by_index(self, df_index, num=10, similarity_measure='cosine', scope='all'):
 
-        track_similarity_df = self._get_similarity(self.tracks.iloc[[df_index]], self.tracks, subset=self.latent_cols, num=num, similarity_measure=similarity_measure)
-
+        if scope == 'all':
+            track_similarity_df = self._get_similarity(self.tracks.iloc[[df_index]], self.tracks, subset=self.latent_cols, num=num, similarity_measure=similarity_measure)
+        elif scope == 'similar_artists':
+            similar_artist_tracks = pd.DataFrame()
+            for artist_id in self.get_similar_artists_by_index(df_index, num=100).artist_id:
+                similar_artist_tracks = pd.concat([similar_artist_tracks, self.get_index_by_artist_id(artist_id)])
+            similar_artist_tracks = self.tracks[self.tracks.track_id.isin(similar_artist_tracks.track_id)]
+            
+            track_similarity_df = self._get_similarity(self.tracks.iloc[[df_index]], similar_artist_tracks, subset=self.latent_cols, num=num, similarity_measure=similarity_measure)
+        else:
+            raise ValueError('scope must be "all" or "similar_artists"')
+        
         return track_similarity_df[['index','track_name','artist_name', 'track_uri','similarity']]
+
     
     def get_similar_artists_by_index(self, df_index, num=10, similarity_measure='cosine'):
 
         artist_similarity_df = self._get_similarity(self.tracks.iloc[[df_index]], self.artists, subset=self.latent_cols, num=num, similarity_measure=similarity_measure)
 
-        return artist_similarity_df[['artist_name','similarity']]
+        return artist_similarity_df[['artist_id','artist_name','similarity']]
 
     def get_similar_genres_by_index(self, df_index, num=10, similarity_measure='cosine'):
 
         genre_similarity_df = self._get_similarity(self.tracks.iloc[[df_index]], self.genres, subset=self.latent_cols, num=num, similarity_measure=similarity_measure)
 
         return genre_similarity_df[['genre','similarity']]
+
 
     def _get_similarity(self, df1, df2, subset, num=10, similarity_measure='cosine'):
         if similarity_measure == 'cosine':
@@ -177,7 +215,7 @@ class LatentSpace:
         ax[1].title.set_text('Reconstructed image')
         ax[1].imshow(prediction[0])
         ax[2].title.set_text('Difference')
-        ax[2].imshow(prediction[0] - test_img[0])
+        ax[2].imshow(prediction[0] - test_img[0], cmap="Spectral")
         plt.tight_layout()
         plt.show()
 
@@ -198,5 +236,11 @@ class LatentSpace:
                 plt.tight_layout()
                 plt.show()
 
-    def get_index_by_artist_name(artist_name):
+    def get_index_by_artist_name(self, artist_name):
         return self.tracks[self.tracks.artist_name.str.contains(artist_name)][['track_id', 'track_name', 'artist_name']]
+
+    def get_index_by_artist_id(self, artist_id):
+        return self.tracks[self.tracks.artist_id == artist_id][['track_id', 'track_name', 'artist_name']]
+
+    def add_artist_id_to_artists(self):
+        self.artists = self.tracks.groupby(['artist_id','artist_name']).mean().reset_index()
