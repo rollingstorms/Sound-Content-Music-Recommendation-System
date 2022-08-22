@@ -12,43 +12,53 @@ from src.helper_functions import progress_bar
 
 class LatentSpace:
     
-    def __init__(self, autoencoder_path, image_dir, tracks_feather_path, sample_size=None, latent_dims=128, num_channels=1, output_size=(128,128), scale=True):
-        self.batch_size = 32
+    def __init__(self,
+                autoencoder_path,
+                image_dir,
+                tracks_feather_path,
+                sample_size=None,
+                latent_dims=128,
+                num_channels=1,
+                output_size=(128,128),
+                scale=True,
+                threshold_level=0,
+                num_tiles=4):
+        self._batch_size = 1
         self.autoencoder = tf.keras.models.load_model(autoencoder_path)
         self.prediction_generator = AudioDataGenerator(directory=image_dir,
                                     image_size=(128,512),
                                     color_mode='rgb',
-                                    batch_size=self.batch_size, 
+                                    batch_size=1, 
                                     shuffle=False,
                                     sample_size = sample_size,
                                     output_channel_index=0,
                                     num_output_channels=num_channels,
-                                    output_size=output_size)
+                                    output_size=output_size,
+                                    threshold_level=threshold_level)
         self.latent_cols = [f'latent_{i}' for i in range(latent_dims)]
         
         self._tracks_df_path = tracks_feather_path
         self.size = self.prediction_generator.size
         self._num_channels = num_channels
         self._scale = scale
-
+        self._num_tiles = num_tiles
         
     def build(self):
-        self.prediction_generator.batch_size=self.batch_size
         results = []
         print('Getting predictions from autoencoder...')
         start_time = time.time()
-        search_range = self.prediction_generator.size // self.batch_size
+        search_range = self.prediction_generator.size
         for i in range(search_range):
-            filename, latent_img, _ = self.prediction_generator.take(i, return_filename=True, get_all_tiles=True)
-            latent_space = np.array(self.autoencoder.encoder(latent_img))
+            filename, latent_img, _ = self.prediction_generator.take(i, return_filename=True, get_all_tiles=True, num_tiles=self._num_tiles)
+            latent_space = np.array(self.autoencoder.encoder(latent_img)).mean(axis=0)
 
-            for j in range(len(latent_space)):
+            for j in range(self._batch_size ):
 
                 result={
-                    'id':str(filename[j]).split('.')[0],
+                    'id':str(filename).split('.')[0],
                     'filename':str(filename[j]),
                       }
-                for idx, col in enumerate(latent_space[j]):
+                for idx, col in enumerate(latent_space):
                     result[f'latent_{idx}'] = col
 
                 results.append(result)
@@ -100,9 +110,8 @@ class LatentSpace:
         self.genres = genre_latents
         
         print('Latent Space Built.')
-        
-        self.prediction_generator.batch_size = 1
-        
+
+
     def save(self, directory_to_save, save_full_results=False):
 
         directories = directory_to_save.split('/')

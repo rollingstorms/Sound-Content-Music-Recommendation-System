@@ -10,14 +10,18 @@ class AudioDataGenerator(tf.keras.utils.Sequence):
                 directory,
                 image_size,
                 color_mode = 'grayscale',
-                batch_size=32, shuffle=False,
-                sample_size=None, train_test_split=False,
-                test_size=.2, file_list=None,
+                batch_size=32, 
+                shuffle=False,
+                sample_size=None, 
+                train_test_split=False,
+                test_size=.2, 
+                file_list=None,
                 name='Generator',
                 output_channel_index=None,
                 num_output_channels=1,
                 output_size=None,
-                threshold_level=0):
+                threshold_level=0,
+                ):
         self.dir = directory
         self._image_size = image_size
         self._img_height = image_size[0]
@@ -57,7 +61,7 @@ class AudioDataGenerator(tf.keras.utils.Sequence):
     def __len__(self):
         return len(self._files) // self.batch_size
 
-    def __getitem__(self, index, return_filename=False, get_all_tiles=False):
+    def __getitem__(self, index, return_filename=False, get_all_tiles=False, num_tiles=4):
         batch = self._files[index*self.batch_size:index*self.batch_size+self.batch_size]
         
         X, y = self.__get_data(batch)
@@ -80,16 +84,14 @@ class AudioDataGenerator(tf.keras.utils.Sequence):
                 X = X[:,rand_y_index:rand_y_index+self.output_size[0],rand_x_index:rand_x_index+self.output_size[1],:]
                 y = X
             else:
-                num_x = self._img_width // self.output_size[1]
-                num_y = self._img_height // self.output_size[0]
+                slice_size = (self._img_width - self.output_size[1]) // (num_tiles - 1)
 
                 all_tiles = []
                 new_batch = []
                 for idx, img in enumerate(X):
-                    for i in range(num_y):
-                        for j in range(num_x):
-                            all_tiles.append(img[i:i+self.output_size[0],j:j+self.output_size[1],:])
-                            new_batch.append(batch[idx])
+                    for i in range(num_tiles):
+                        all_tiles.append(img[:,i*slice_size:(i*slice_size)+self.output_size[1],:])
+                        new_batch.append(batch[idx])
                             
                 X = np.array(all_tiles)
                 y = X
@@ -128,9 +130,9 @@ class AudioDataGenerator(tf.keras.utils.Sequence):
 
         return X, y
     
-    def take(self, index=1, return_filename=False, get_all_tiles=False):
+    def take(self, index=1, return_filename=False, get_all_tiles=False, num_tiles=4):
         
-        return self.__getitem__(index, return_filename, get_all_tiles)
+        return self.__getitem__(index, return_filename, get_all_tiles, num_tiles)
     
     def __train_test_split(self, files):
         
