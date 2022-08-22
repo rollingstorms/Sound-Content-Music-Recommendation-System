@@ -8,6 +8,11 @@ from sklearn.metrics.pairwise import cosine_similarity, euclidean_distances
 from sklearn.preprocessing import StandardScaler
 from src.DataGenerator import AudioDataGenerator
 from src.helper_functions import progress_bar
+from joblib import dump, load
+import json
+import spotipy
+from spotipy.oauth2 import SpotifyClientCredentials
+
 
 
 class LatentSpace:
@@ -42,6 +47,15 @@ class LatentSpace:
         self._num_channels = num_channels
         self._scale = scale
         self._num_tiles = num_tiles
+
+        f = open('data/apikeys/.apikeys.json')
+        apikeys = json.load(f)
+        self.client_id = apikeys['clientId']
+        self.client_secret = apikeys['clientSecret']
+
+        credentials_manager = SpotifyClientCredentials(client_id=self.client_id, client_secret=self.client_secret)
+
+        self._spotify = spotipy.Spotify(client_credentials_manager=credentials_manager)
         
     def build(self):
         results = []
@@ -55,8 +69,8 @@ class LatentSpace:
             for j in range(self._batch_size ):
 
                 result={
-                    'id':str(filename).split('.')[0],
-                    'filename':str(filename[j]),
+                    'id':filename[j].split('.')[0],
+                    'filename':filename[j],
                       }
                 for idx, col in enumerate(latent_space):
                     result[f'latent_{idx}'] = col
@@ -73,23 +87,24 @@ class LatentSpace:
         results_df = pd.DataFrame(results)
         self.results = results_df
         print('size of results', len(results_df))
-        results_df = results_df.groupby('id').mean().reset_index()
+
         tracks_df = feather.read_feather(self._tracks_df_path)
         track_latents = results_df.merge(tracks_df, how='left', left_on='id', right_on='track_id')
         track_latents = track_latents.drop_duplicates(subset='id')
         track_latents = track_latents.reset_index(drop=True)
         
         if self._scale:
-            scaler = StandardScaler()
-            track_latent_scaled = scaler.fit_transform(track_latents[self.latent_cols])
+            self._scaler = StandardScaler()
+            track_latent_scaled = self._scaler.fit_transform(track_latents[self.latent_cols])
             track_latents[self.latent_cols] = track_latent_scaled
-        
+        self.tracks = track_latents
         print(f'Track dataframe built. {round((time.time()-start_time)/60,2)} minutes elapsed')
         
         start_time = time.time()
         print('Building artist distributions...')
         artist_latents = track_latents.groupby(['artist_id','artist_name']).mean().reset_index()
-        artist_latents.drop(columns=['track_popularity', 'artist_popularity'], inplace=True)
+        artist_latents.drop(columns=['track_popularity'], inplace=True)
+        self.artists = artist_latents
         print(f'Artist distributions built. {round((time.time()-start_time)/60,2)} minutes elapsed')
         
         start_time = time.time()
@@ -102,11 +117,9 @@ class LatentSpace:
                 genre_rows.append(new_row)        
         genre_latents = pd.DataFrame(genre_rows)
         genre_latents = genre_latents.groupby('genre').mean().dropna()
-        genre_latents.drop(columns=['track_popularity', 'artist_popularity'], inplace=True)
+        genre_latents = genre_latents.reset_index()
         print(f'Genre distributions built. {round((time.time()-start_time)/60,2)} minutes elapsed')
         
-        self.tracks = track_latents
-        self.artists = artist_latents
         self.genres = genre_latents
         
         print('Latent Space Built.')
@@ -127,6 +140,9 @@ class LatentSpace:
         feather.write_feather(self.tracks, directory_to_save+'/tracks.feather')
         feather.write_feather(self.artists, directory_to_save+'/artists.feather')
         feather.write_feather(self.genres, directory_to_save+'/genres.feather')
+        if self._scale:
+            dump(self._scaler, directory_to_save+'/std_scaler.bin', compress=True)
+
         if save_full_results:
             feather.write_feather(self.results, directory_to_save+'/results.feather')
 
@@ -149,6 +165,11 @@ class LatentSpace:
         except:
             print('Failed to load genres.')
 
+        try:
+            self._scaler=load(directory_to_load+'/std_scaler.bin')
+            print('loaded scaler')
+        except:
+            print('Failed to load scaler.')
 
         if load_full_results:
             try:
@@ -190,7 +211,7 @@ class LatentSpace:
         return genre_similarity_df[['genre','similarity']]
 
 
-    def _get_similarity(self, df1, df2, subset, num=10, similarity_measure='cosine'):
+    def get_similarity(self, df1, df2, subset, num=10, similarity_measure='cosine', popularity_threshold=0):
         if similarity_measure == 'cosine':
             similarity_measure_fn = cosine_similarity
             sort = False
@@ -205,12 +226,14 @@ class LatentSpace:
         similarity_df = df2.copy()
         similarity_df['similarity'] = similarity.T
 
+        similarity_df = similarity_df[similarity_df.track_popularity > popularity_threshold]
+
         return similarity_df.sort_values(by='similarity', ascending=sort).reset_index()[:num]
 
 
-    def get_image_data_by_index(self, index):
+    def get_image_data_by_index(self, index, get_all_tiles=False, num_tiles=4):
         if index < self.size:
-            return self.prediction_generator.take(index)[0]
+            return self.prediction_generator.take(index, get_all_tiles=get_all_tiles, num_tiles=num_tiles)[0]
         else:
             raise ValueError(f'Index must be less than total size of generator: {self.size}')
             
@@ -253,3 +276,41 @@ class LatentSpace:
 
     def add_artist_id_to_artists(self):
         self.artists = self.tracks.groupby(['artist_id','artist_name']).mean().reset_index()
+
+    def get_vector_by_name(self, name, scope):
+        if scope == 'artist':
+            return self.artists[self.artists.artist_name == name][self.latent_cols]
+        if scope == 'genre':
+            return self.genres[self.genres.genre == name][self.latent_cols]
+
+    def get_vector_from_preview_link(self, link, track_id):
+        img = self.prediction_generator.get_vector_from_preview_link(link, track_id, num_tiles=self._num_tiles)
+        vector = np.array(self.autoencoder.encoder(img[0])).mean(axis=0)
+        vector = self._scaler.transform([vector])
+        vector = pd.DataFrame(vector, columns=self.latent_cols)
+        return vector
+
+    def plot_reconstruction_from_vector(self, vector):
+
+        vector = self._scaler.inverse_transform(vector)
+        
+        prediction = np.array(self.autoencoder.decoder(np.array(vector)))
+        
+        fig, ax = plt.subplots(ncols=1, figsize=(3,3))
+        
+        ax.title.set_text('Reconstructed image')
+        ax.imshow(prediction[0])
+        plt.tight_layout()
+        plt.show()
+
+    def search_for_recommendations(self, query, num=10, popularity_threshold=10):
+        id_ = self._spotify.search(query, type='track')['tracks']['items'][0]['id']
+        track = self._spotify.track(id_)
+        link = track['preview_url']
+        print(track['name'])
+        print(track['artists'][0]['name'])
+        print(link)
+
+        vector = self.get_vector_from_preview_link(link, id_)
+
+        return self.get_similarity(vector, self.tracks, subset=self.latent_cols, num=num, popularity_threshold=popularity_threshold)[['track_name','track_uri','artist_name','similarity','track_popularity']]

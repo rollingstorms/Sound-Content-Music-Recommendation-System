@@ -3,6 +3,9 @@ from random import sample, shuffle
 import os
 import tensorflow as tf
 import numpy.ma as ma
+import requests
+import librosa
+from skimage.transform import resize
 
 
 class AudioDataGenerator(tf.keras.utils.Sequence):
@@ -61,10 +64,13 @@ class AudioDataGenerator(tf.keras.utils.Sequence):
     def __len__(self):
         return len(self._files) // self.batch_size
 
-    def __getitem__(self, index, return_filename=False, get_all_tiles=False, num_tiles=4):
-        batch = self._files[index*self.batch_size:index*self.batch_size+self.batch_size]
+    def __getitem__(self, index=0, return_filename=False, get_all_tiles=False, num_tiles=4, image=False, image_data=None, filename=None):
+        if filename == None:
+            batch = self._files[index*self.batch_size:index*self.batch_size+self.batch_size]
+        else:
+            batch = [filename]
         
-        X, y = self.__get_data(batch)
+        X, y = self.__get_data(batch, image, image_data)
         
         if self.output_channel_index != None:
             X = X[:,:,:,self.output_channel_index:self.output_channel_index+self.num_output_channels]
@@ -84,7 +90,10 @@ class AudioDataGenerator(tf.keras.utils.Sequence):
                 X = X[:,rand_y_index:rand_y_index+self.output_size[0],rand_x_index:rand_x_index+self.output_size[1],:]
                 y = X
             else:
-                slice_size = (self._img_width - self.output_size[1]) // (num_tiles - 1)
+                if num_tiles > 1: 
+                    slice_size = (self._img_width - self.output_size[1]) // (num_tiles - 1)
+                else:
+                    slice_size = 0
 
                 all_tiles = []
                 new_batch = []
@@ -109,12 +118,15 @@ class AudioDataGenerator(tf.keras.utils.Sequence):
             shuffle(self._files)
         
         
-    def __get_data(self, batch):
+    def __get_data(self, batch, image=False, image_data=None):
         X = np.empty((self.batch_size, self._img_height, self._img_width, self._img_channels))
 
         for i, file in enumerate(batch):
-            path = self.dir + file
-            img = tf.keras.preprocessing.image.load_img(path, color_mode=self._color_mode)
+            if image == False:
+                path = self.dir + file
+                img = tf.keras.preprocessing.image.load_img(path, color_mode=self._color_mode)
+            else:
+                img = image_data
             scale = 1./255
             img = scale*np.array(img)
             if self.threshold_level > 0:
@@ -129,6 +141,11 @@ class AudioDataGenerator(tf.keras.utils.Sequence):
         y = X
 
         return X, y
+
+    def get_vector_from_preview_link(self, track_url, track_id, num_tiles=32):
+        img = download_preview_with_url(track_url, track_id)
+        return self.__getitem__(get_all_tiles=True, num_tiles=num_tiles, image=True, image_data=img, filename=track_id)
+
     
     def take(self, index=1, return_filename=False, get_all_tiles=False, num_tiles=4):
         
@@ -165,3 +182,41 @@ class AudioDataGenerator(tf.keras.utils.Sequence):
             files = sample(files, self.sample_size)
         
         return files
+
+
+def download_preview_with_url(track_url, track_id):
+
+    preview = requests.get(track_url)
+
+    filename = f'data/Spotify/mp3s/{track_id}.mp3'
+
+    with open(filename, 'wb') as f:
+        f.write(preview.content)
+
+    composite_image = convert_audio_to_composite_image(filename)
+
+    os.remove(filename)
+
+    return composite_image
+
+
+def convert_audio_to_composite_image(filepath_to_audio, image_size=(128,512), n_mels=128, fmax=8000,):
+    
+    signal, sr = librosa.load(filepath_to_audio)
+    
+    mels = librosa.power_to_db(librosa.feature.melspectrogram(y=signal, sr=sr, n_mels=n_mels, fmax=fmax), ref=np.max)
+    mel_image = (((80+mels)/80)*255)
+    mel_image = np.flip(mel_image, axis=0)
+    mel_image = resize(mel_image, (128,512)).astype(np.uint8)
+    
+    mfcc = librosa.power_to_db(librosa.feature.mfcc(y=signal, sr=sr, n_mfcc=128, fmax=8000), ref=np.max)
+    mfcc_image = (((80+mfcc)/80)*255)
+    mfcc_image = np.flip(mfcc_image, axis=0)
+    mfcc_image = resize(mfcc_image, (128,512)).astype(np.uint8)
+    
+    chromagram = librosa.feature.chroma_cqt(y=signal, sr=sr)
+    chroma_image = resize(chromagram*255, (128,512)).astype(np.uint8)
+    
+    composite = np.dstack((mel_image, mfcc_image, chroma_image))
+
+    return composite
