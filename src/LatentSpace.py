@@ -211,7 +211,7 @@ class LatentSpace:
         return genre_similarity_df[['genre','similarity']]
 
 
-    def get_similarity(self, df1, df2, subset, num=10, similarity_measure='cosine', popularity_threshold=0):
+    def get_similarity(self, df1, df2, subset, num=10, similarity_measure='cosine', popularity_threshold=0, sort_tracks=True):
         if similarity_measure == 'cosine':
             similarity_measure_fn = cosine_similarity
             sort = False
@@ -228,7 +228,10 @@ class LatentSpace:
 
         similarity_df = similarity_df[similarity_df.track_popularity > popularity_threshold]
 
-        return similarity_df.sort_values(by='similarity', ascending=sort).reset_index()[:num]
+        if sort_tracks:
+            similarity_df = similarity_df.sort_values(by='similarity', ascending=sort).reset_index()
+
+        return similarity_df[:num]
 
 
     def get_image_data_by_index(self, index, get_all_tiles=False, num_tiles=4):
@@ -241,7 +244,7 @@ class LatentSpace:
         test_img = self.get_image_data_by_index(index)
         prediction = np.array(self.autoencoder(test_img))
         
-        fig, ax = plt.subplots(ncols=3, figsize=(10,3))
+        fig, ax = plt.subplots(ncols=3, figsize=(15,5))
         ax[0].title.set_text('Original image')
         ax[0].imshow(test_img[0])
         ax[1].title.set_text('Reconstructed image')
@@ -286,7 +289,7 @@ class LatentSpace:
     def get_vector_from_preview_link(self, link, track_id):
         img = self.prediction_generator.get_vector_from_preview_link(link, track_id, num_tiles=self._num_tiles)
         vector = np.array(self.autoencoder.encoder(img[0])).mean(axis=0)
-        vector = self._scaler.transform([vector])
+        vector = self._scaler.transform(pd.DataFrame([vector], columns=self.latent_cols))
         vector = pd.DataFrame(vector, columns=self.latent_cols)
         return vector
 
@@ -303,7 +306,7 @@ class LatentSpace:
         plt.tight_layout()
         plt.show()
 
-    def search_for_recommendations(self, query, num=10, popularity_threshold=10):
+    def search_for_recommendations(self, query, num=10, popularity_threshold=10, get_time_and_freq=False):
         id_ = self._spotify.search(query, type='track')['tracks']['items'][0]['id']
         track = self._spotify.track(id_)
         link = track['preview_url']
@@ -311,6 +314,16 @@ class LatentSpace:
         print(track['artists'][0]['name'])
         print(link)
 
-        vector = self.get_vector_from_preview_link(link, id_)
+        if link is not None:
 
-        return self.get_similarity(vector, self.tracks, subset=self.latent_cols, num=num, popularity_threshold=popularity_threshold)[['track_name','track_uri','artist_name','similarity','track_popularity']]
+            vector = self.get_vector_from_preview_link(link, id_)
+            similarity = self.get_similarity(vector, self.tracks, subset=self.latent_cols, num=num, popularity_threshold=popularity_threshold)
+            if get_time_and_freq:
+                similarity['time_similarity'] = self.get_similarity(vector, similarity, subset=self.latent_cols[:len(self.latent_cols)//2], num=num, popularity_threshold=popularity_threshold, sort_tracks=False)['similarity']
+                similarity['frequency_similarity'] = self.get_similarity(vector, similarity, subset=self.latent_cols[len(self.latent_cols)//2:], num=num, popularity_threshold=popularity_threshold, sort_tracks=False)['similarity']
+            
+                return similarity[['track_name','track_uri','artist_name','similarity','track_popularity','time_similarity','frequency_similarity']]
+            else:
+                return similarity[['track_name','track_uri','artist_name','similarity','track_popularity']]
+        else:
+            print('No Preview Available. Try a different search.')
