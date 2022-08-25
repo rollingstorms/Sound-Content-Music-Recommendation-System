@@ -1,5 +1,7 @@
 # Exploring the Sonic Landscape
 
+![](img/sonic_landscape.jpg)
+
 ## A Music Recommendation System Based on Sound Content
 
 If you're like me, you love music. I love music and I love to find new music. Spotify is one of the top streaming services for music on the internet, and it already includes amazing tools that help you to discover new music based on what you listen to. It does this through a combination of different algorithms, including collaborative filtering where similar usage between users is tracked and used to generate recommendations or content-based recommendations which recommend new songs based on similar information between the information linked to a song. Like a song? On Spotify, you can listen to that song's 'radio', which will collect a group of songs similar to that song in some way or a combination of ways. What if you like a song, but don't care about any information other than just the sound in it? Sometimes, that is all I want to hear.
