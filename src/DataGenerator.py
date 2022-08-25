@@ -9,6 +9,7 @@ from skimage.transform import resize
 
 
 class AudioDataGenerator(tf.keras.utils.Sequence):
+    
     def __init__(self,
                 directory,
                 image_size,
@@ -163,6 +164,7 @@ class AudioDataGenerator(tf.keras.utils.Sequence):
         test_files = files[test_split:]
         
         self.train = AudioDataGenerator(self.dir, self._image_size, batch_size=self.batch_size, color_mode=self._color_mode, shuffle=self.shuffle, file_list=train_files, name='Training', output_channel_index=self.output_channel_index, output_size=self.output_size)
+        
         self.test = AudioDataGenerator(self.dir, self._image_size, batch_size=self.batch_size, color_mode=self._color_mode, shuffle=self.shuffle, file_list=test_files, name='Test', output_channel_index=self.output_channel_index, output_size=self.output_size)
         
         
